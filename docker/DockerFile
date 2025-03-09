@@ -1,0 +1,75 @@
+# Copyright 2024 TRAPS
+
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+
+#     http://www.apache.org/licenses/LICENSE-2.0
+
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+# イメージ引数設定
+ARG ROS_DISTRO=foxy
+
+# プラットフォームとベースのイメージを設定
+FROM ros:${ROS_DISTRO}
+
+# ワークスペスのディレクトリ名と必須aptパッケージの名前
+ARG WORKSPACE_PATH=/root/ros2_ws
+ARG ENTRYPOINT_FILE=./ros_ws_entrypoint.sh
+ARG REQUIRE_APTS=qtbase5-dev
+
+# 設定されたワークスペースに移動
+WORKDIR ${WORKSPACE_PATH}
+
+# ユーザー設定
+USER root
+
+# bashrcの設定
+RUN echo "source $(pwd)/install/setup.bash" >> ~/.bashrc
+
+# ws_entry_point.shのコピー
+COPY ${ENTRYPOINT_FILE} /ros_ws_entrypoint.sh
+
+# apt upgrade
+RUN \
+  apt-get update && \
+  apt-get upgrade -y --no-install-recommends && \
+  apt-get install -y --no-install-recommends ${REQUIRE_APTS} && \
+  apt-get autoremove -y --purge && \
+  apt-get clean && \
+  rm -rf /var/lib/apt/lists/*
+
+# ワークスペースのコピー
+COPY ${WORKSPACE_DIR}/. .
+
+# ビルドとgitの設定の実行
+RUN \
+  # GitHub workfrowで実行時のリモート設定を削除
+  mkdir src && \
+  cd src && \
+  git clone --recurse-submodules --depth 1 https://github.com/Nkyoku/phoenix-jetson.git && \
+  cd .. && \
+  \
+  # パッケージのインストール
+  apt-get update && \
+  rosdep update  --rosdistro=${ROS_DISTRO} && \
+  rosdep install --rosdistro=${ROS_DISTRO} --from-paths src -iy && \
+  apt-get clean && \
+  rm -rf /var/lib/apt/lists/* && \
+  \
+  # ビルド
+  . /opt/ros/${ROS_DISTRO}/setup.sh && \
+  colcon build --packages-up-to phoenix --cmake-args -DCMAKE_BUILD_TYPE=Release && \
+  rm -rf ./log ./build ./src
+
+
+# 実行前に行われる操作
+ENTRYPOINT ["/ros_ws_entrypoint.sh"]
+
+# 実行時のデフォルトのコマンド
+CMD ["bash"]
